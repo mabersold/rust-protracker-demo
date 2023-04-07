@@ -5,7 +5,10 @@ use std::io::Read;
 
 struct ProTrackerModule {
     title: String,
-    instruments: Vec<Instrument>
+    instruments: Vec<Instrument>,
+    total_song_positions: u8,
+    noise_tracker_restart: u8,
+    order_list: Vec<u8>
 }
 
 struct Instrument {
@@ -35,17 +38,12 @@ fn main() {
         Ok(file) => file,
     };
 
-    // Read the title
-    let mut buffer = [0u8; 20];
-    file.read_exact(&mut buffer).expect("Failed to read title");
-    let title = String::from_utf8_lossy(&buffer).trim_end().to_string();
+    let title = read_string(20, &mut file, "Failed to read title");
 
     // Read the instruments
     let mut instruments = Vec::with_capacity(31);
     for _ in 0..31 {
-        let mut instrument_name_buf = [0u8; 22];
-        file.read_exact(&mut instrument_name_buf).expect("Failed to read instrument name");
-        let instrument_name = String::from_utf8_lossy(&instrument_name_buf).trim_end().to_string();
+        let instrument_name = read_string(22, &mut file, "Failed to read instrument name");
 
         let mut instrument_length_buf = [0u8; 2];
         file.read_exact(&mut instrument_length_buf).expect("Failed to read instrument length");
@@ -79,9 +77,28 @@ fn main() {
         instruments.push(instrument);
     }
 
+    let mut total_positions_buf = [0u8; 1];
+    file.read_exact(&mut total_positions_buf).expect("Failed to read number of song positions");
+    let total_song_positions = u8::from_le_bytes(total_positions_buf);
+
+    let mut noise_tracker_restart_buf = [0u8; 1];
+    file.read_exact(&mut noise_tracker_restart_buf).expect("Failed to read Noise Tracker restart value");
+    let noise_tracker_restart = u8::from_le_bytes(noise_tracker_restart_buf);
+
+    let mut order_list = Vec::with_capacity(128);
+    for _ in 0..127 {
+        let mut order_number_buf = [0u8; 1];
+        file.read_exact(&mut order_number_buf).expect("Failed to read an order number");
+        let order = u8::from_le_bytes(order_number_buf);
+        order_list.push(order);
+    }
+
     let protracker_module = ProTrackerModule {
         title,
-        instruments
+        instruments,
+        total_song_positions,
+        noise_tracker_restart,
+        order_list
     };
 
     println!("Title: {}", protracker_module.title);
@@ -93,6 +110,18 @@ fn main() {
         println!("Repeat offset: {}", instrument.repeat_offset);
         println!("Repeat length: {}", instrument.repeat_length);
     }
+    println!("Total number of song positions: {}", protracker_module.total_song_positions);
+    println!("Noise Tracker restart value: {}", protracker_module.noise_tracker_restart);
+    print!("Order list: ");
+    for order in protracker_module.order_list {
+        print!("{} ", order);
+    }
+}
+
+fn read_string(length: usize, file: &mut File, error_message: &str) -> String {
+    let mut buffer = [0u8; 256];
+    file.read_exact(&mut buffer[..length]).expect(error_message);
+    String::from_utf8_lossy(&buffer[..length]).trim_end().to_string()
 }
 
 fn signed_nibble(data: i8) -> i8 {
@@ -101,7 +130,7 @@ fn signed_nibble(data: i8) -> i8 {
 
     //if first bit is 1, it's a negative number
     if nibble & 8 == 8 {
-        (nibble - 16)
+        nibble - 16
     } else {
         nibble
     }
