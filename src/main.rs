@@ -18,7 +18,8 @@ struct Instrument {
     fine_tune: i8,
     volume: u8,
     repeat_offset: u16,
-    repeat_length: u16
+    repeat_length: u16,
+    audio_data: Vec<u8>
 }
 
 struct Pattern {
@@ -79,41 +80,43 @@ fn main() {
 
     let title = read_string(20, &mut file, "Failed to read title");
 
+    let mut instrument_names = Vec::with_capacity(31);
+    let mut instrument_lengths = [0u16; 31];
+    let mut instrument_fine_tunes = [0i8; 31];
+    let mut instrument_volumes = [0u8; 31];
+    let mut instrument_repeat_offsets = [0u16; 31];
+    let mut instrument_repeat_lengths = [0u16; 31];
+
     // Read the instruments
     let mut instruments = Vec::with_capacity(31);
-    for _ in 0..31 {
+    for i in 0..31 {
         let instrument_name = read_string(22, &mut file, "Failed to read instrument name");
+        instrument_names.push(instrument_name);
 
         let mut instrument_length_buf = [0u8; 2];
         file.read_exact(&mut instrument_length_buf).expect("Failed to read instrument length");
-        let instrument_length = u16::from_le_bytes(instrument_length_buf);
+        let instrument_length = u16::from_be_bytes(instrument_length_buf);
+        instrument_lengths[i] = instrument_length;
 
         let mut instrument_fine_tune_buf = [0u8; 1];
         file.read_exact(&mut instrument_fine_tune_buf).expect("Failed to read instrument finetune");
         let instrument_fine_tune = signed_nibble((instrument_fine_tune_buf[0] & 0x0F) as i8);
+        instrument_fine_tunes[i] = instrument_fine_tune;
 
         let mut instrument_volume_buf = [0u8; 1];
         file.read_exact(&mut instrument_volume_buf).expect("Failed to read instrument volume");
-        let instrument_volume = u8::from_le_bytes(instrument_volume_buf);
+        let instrument_volume = u8::from_be_bytes(instrument_volume_buf);
+        instrument_volumes[i] = instrument_volume;
 
         let mut instrument_repeat_offset_buf = [0u8; 2];
         file.read_exact(&mut instrument_repeat_offset_buf).expect("Failed to read instrument repeat offset");
-        let instrument_repeat_offset = u16::from_le_bytes(instrument_repeat_offset_buf);
+        let instrument_repeat_offset = u16::from_be_bytes(instrument_repeat_offset_buf);
+        instrument_repeat_offsets[i] = instrument_repeat_offset;
 
         let mut instrument_repeat_length_buf = [0u8; 2];
         file.read_exact(&mut instrument_repeat_length_buf).expect("Failed to read instrument repeat length");
-        let instrument_repeat_length = u16::from_le_bytes(instrument_repeat_length_buf);
-
-        let instrument = Instrument {
-            name: instrument_name,
-            length: instrument_length,
-            fine_tune: instrument_fine_tune,
-            volume: instrument_volume,
-            repeat_offset: instrument_repeat_offset,
-            repeat_length: instrument_repeat_length
-        };
-
-        instruments.push(instrument);
+        let instrument_repeat_length = u16::from_be_bytes(instrument_repeat_length_buf);
+        instrument_repeat_lengths[i] = instrument_repeat_length;
     }
 
     let mut total_positions_buf = [0u8; 1];
@@ -174,6 +177,27 @@ fn main() {
         }
 
         patterns.push(pattern);
+    }
+
+    let mut audio_data_vectors = Vec::with_capacity(31);
+    for length in instrument_lengths {
+        let audio_data_size = length as usize * 2;
+        let mut audio_data_buffer = vec![0u8; audio_data_size];
+        file.read_exact(&mut audio_data_buffer).expect("Could not load audio data");
+        audio_data_vectors.push(audio_data_buffer);
+    }
+
+    for i in 0..31 {
+        let instrument = Instrument {
+            name: instrument_names[i].clone(),
+            length: instrument_lengths[i],
+            fine_tune: instrument_fine_tunes[i],
+            volume: instrument_volumes[i],
+            repeat_offset: instrument_repeat_offsets[i],
+            repeat_length: instrument_repeat_lengths[i],
+            audio_data: audio_data_vectors[i].clone()
+        };
+        instruments.push(instrument);
     }
 
     let protracker_module = ProTrackerModule {
